@@ -11,6 +11,18 @@ def test_channel_without_impairments_preserves_frame_with_offset():
     assert decode_frame(received) == payload
 
 
+@pytest.mark.parametrize("cfo_hz", [1000.0, 2000.0, -2000.0])
+def test_receiver_handles_carrier_frequency_offset(cfo_hz):
+    payload = b"frequency offset regression"
+    received = apply_channel(
+        encode_frame(payload),
+        cfo_hz=cfo_hz,
+        sample_offset=17,
+        rng=np.random.default_rng(2026),
+    )
+    assert decode_frame(received) == payload
+
+
 def test_channel_noise_is_reproducible_with_seeded_rng():
     iq = encode_frame(b"repeatable")
     a = apply_channel(iq, snr_db=20, rng=np.random.default_rng(7))
