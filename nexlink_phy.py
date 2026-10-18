@@ -80,56 +80,73 @@ def encode_frame(payload: bytes) -> np.ndarray:
     return modulate(frame_bits(payload))
 
 
-def _demodulate_aligned(iq: np.ndarray) -> list[int]:
+def _demodulate_aligned(iq: np.ndarray, cfo_hz: float = 0.0) -> list[int]:
+    """Demodulate symbol-aligned IQ using a candidate carrier-frequency offset."""
     count = len(iq) // SAMPLES_PER_SYMBOL
     if count == 0:
         return []
     blocks = np.asarray(iq[:count * SAMPLES_PER_SYMBOL]).reshape(count, SAMPLES_PER_SYMBOL)
     n = np.arange(SAMPLES_PER_SYMBOL, dtype=np.float64)
     t = n / SAMPLE_RATE
-    tone0 = np.exp(2j * np.pi * FREQ_ZERO * t)
-    tone1 = np.exp(2j * np.pi * FREQ_ONE * t)
+    tone0 = np.exp(2j * np.pi * (FREQ_ZERO + cfo_hz) * t)
+    tone1 = np.exp(2j * np.pi * (FREQ_ONE + cfo_hz) * t)
     energy0 = np.abs(blocks @ np.conjugate(tone0)) ** 2
     energy1 = np.abs(blocks @ np.conjugate(tone1)) ** 2
     return (energy1 > energy0).astype(np.uint8).tolist()
 
 
-def decode_frame(iq: np.ndarray) -> bytes:
-    """Recover a frame from IQ samples with arbitrary leading sample offset.
+# Coarse blind CFO search. The CRC protects against accepting a wrong hypothesis.
+CFO_SEARCH_STEP_HZ = 250.0
+MAX_CFO_SEARCH_HZ = 2_500.0
 
-    This first receiver supports a clean, single frame with nominal sample
-    rate and no channel impairments. Real SDR captures need CFO/timing/channel
-    robustness before this can be considered a field-ready modem.
+
+def _cfo_hypotheses() -> tuple[float, ...]:
+    """Try zero offset first, then increasingly large positive/negative offsets."""
+    steps = int(MAX_CFO_SEARCH_HZ // CFO_SEARCH_STEP_HZ)
+    candidates = [0.0]
+    for step in range(1, steps + 1):
+        offset = step * CFO_SEARCH_STEP_HZ
+        candidates.extend((offset, -offset))
+    return tuple(candidates)
+
+
+def decode_frame(iq: np.ndarray) -> bytes:
+    """Recover a frame with arbitrary leading sample offset and coarse CFO search.
+
+    The receiver tests carrier-offset hypotheses from -2.5 kHz to +2.5 kHz
+    in 250 Hz steps, then validates synchronization, length, and CRC. It still
+    assumes the nominal sample rate and is a research prototype, not a
+    field-ready modem with continuous carrier/timing recovery.
     """
     samples = np.asarray(iq, dtype=np.complex64).reshape(-1)
     preamble_and_sync = list(PREAMBLE) + bytes_to_bits(SYNC_WORD.to_bytes(2, "big"))
     header_bits = len(preamble_and_sync) + 16
-    for sample_offset in range(min(SAMPLES_PER_SYMBOL, len(samples))):
-        bits = _demodulate_aligned(samples[sample_offset:])
-        last_start = len(bits) - header_bits
-        for start in range(max(0, last_start + 1)):
-            if bits[start:start + len(PREAMBLE)] != list(PREAMBLE):
-                continue
-            sync_start = start + len(PREAMBLE)
-            sync_bits = bits[sync_start:sync_start + 16]
-            if bits_to_bytes(sync_bits) != SYNC_WORD.to_bytes(2, "big"):
-                continue
-            length_start = sync_start + 16
-            length = int.from_bytes(bits_to_bytes(bits[length_start:length_start + 16]), "big")
-            if length > MAX_PAYLOAD:
-                continue
-            end = length_start + 16 + (length + 2) * 8
-            if end > len(bits):
-                continue
-            encoded = bits_to_bytes(bits[length_start + 16:end])
-            payload, crc_bytes = encoded[:-2], encoded[-2:]
-            # The transmitted CRC covers the 16-bit length field + payload.
-            crc_input = length.to_bytes(2, "big") + payload
-            if crc16_ccitt(crc_input) != int.from_bytes(crc_bytes, "big"):
-                continue
-            return payload
+    for cfo_hz in _cfo_hypotheses():
+        for sample_offset in range(min(SAMPLES_PER_SYMBOL, len(samples))):
+            bits = _demodulate_aligned(samples[sample_offset:], cfo_hz=cfo_hz)
+            last_start = len(bits) - header_bits
+            for start in range(max(0, last_start + 1)):
+                if bits[start:start + len(PREAMBLE)] != list(PREAMBLE):
+                    continue
+                sync_start = start + len(PREAMBLE)
+                sync_bits = bits[sync_start:sync_start + 16]
+                if bits_to_bytes(sync_bits) != SYNC_WORD.to_bytes(2, "big"):
+                    continue
+                length_start = sync_start + 16
+                length = int.from_bytes(bits_to_bytes(bits[length_start:length_start + 16]), "big")
+                if length > MAX_PAYLOAD:
+                    continue
+                end = length_start + 16 + (length + 2) * 8
+                if end > len(bits):
+                    continue
+                encoded = bits_to_bytes(bits[length_start + 16:end])
+                payload, crc_bytes = encoded[:-2], encoded[-2:]
+                # The transmitted CRC covers the 16-bit length field + payload.
+                crc_input = length.to_bytes(2, "big") + payload
+                if crc16_ccitt(crc_input) != int.from_bytes(crc_bytes, "big"):
+                    continue
+                return payload
     raise ValueError("no valid NEXLINK frame found (sync/length/CRC check failed)")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="NEXLINK-PHY IQ frame encoder/decoder")
