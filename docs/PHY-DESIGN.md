@@ -15,6 +15,7 @@ of novelty. FSK itself is established prior art.
 - Bit 0: 10 kHz complex tone
 - Bit 1: 20 kHz complex tone
 - Detection: noncoherent tone-energy comparison
+- Coarse carrier-frequency-offset search: ±2.5 kHz in 250 Hz steps
 - Frame preamble: 24 alternating bits (1010 repeated 12 times)
 - Sync word: 0xD391
 - Length: 16-bit unsigned big-endian payload length
@@ -48,15 +49,18 @@ python3 nexlink_phy.py decode frame.c64
 ```
 
 The decode command expects raw complex64 IQ samples at the configured sample
-rate. It currently assumes nominal sample-rate alignment and a clean capture.
-It is not a channel simulator; the round-trip tests validate the codec and
-framing logic on generated samples only.
+rate. It searches coarse carrier-frequency-offset hypotheses from −2.5 kHz to
++2.5 kHz in 250 Hz steps and checks synchronization, length, and CRC. It still
+assumes the nominal sample rate and does not implement continuous carrier or
+timing recovery. The round-trip and channel tests validate software-generated
+IQ only; they do not establish RF performance.
 
 ## Before over-the-air use
 
 1. Obtain compatible SDR hardware and confirm its IQ sample format.
-2. Add gain control, carrier-frequency-offset estimation, timing recovery,
-   preamble correlation, packet error-rate measurement, and robust channel tests.
+2. Replace the coarse CFO grid with a more efficient estimator; add gain
+   control, timing recovery, preamble correlation, packet error-rate measurement,
+   and robust channel tests.
 3. Check local radio regulations and use a permitted band, power level, and
    appropriate test setup. Do not connect the IQ file directly to a transmitter
    without understanding the SDR's scaling, center frequency, and RF output.
