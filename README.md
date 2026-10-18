@@ -10,7 +10,8 @@
 - Complex64 IQ waveform generation.
 - A first noncoherent tone-energy receiver with preamble/sync search.
 - Payload length checking and CRC-16/CCITT-FALSE integrity validation.
-- Unit tests for codec round trips, leading sample offsets, CRC, invalid input, and corruption detection.
+- A software channel simulator for reproducible AWGN, carrier-frequency offset, gain, and sample-delay experiments.
+- Unit tests for codec round trips, sample offsets, CRC, invalid input, corruption detection, and the channel harness.
 
 Binary FSK and CRC are established techniques. The research goal is to build a working end-to-end PHY on real radio hardware, compare it against prior art, and only then assess whether any design contribution is meaningfully novel.
 
@@ -35,6 +36,16 @@ Decode an IQ capture saved as complex64 samples at the configured sample rate:
 python3 nexlink_phy.py decode nexlink_frame.c64
 ```
 
+## Simulate a noisy channel
+
+Run a reproducible packet-success sweep over a few signal-to-noise ratios:
+
+```bash
+python3 nexlink_channel.py --message "hello NEXLINK" --snr 30,20,15,10,5,0 --packets 100 --seed 2026
+```
+
+The output reports packet success and packet error rate (PER) at each SNR point. You can use this as a baseline while improving the receiver. The simulator currently models additive white Gaussian noise (AWGN), carrier-frequency offset, gain, and leading sample delay through its Python API; it does not yet model multipath fading, sample-clock drift, real receiver noise figures, or a complete RF chain. The sweep is a software experiment, not an over-the-air test.
+
 The encode/decode commands are for baseband software development. Encoding then decoding the same file validates the codec, not over-the-air communication.
 
 ## Initial PHY parameters
@@ -54,10 +65,11 @@ See [docs/PHY-DESIGN.md](docs/PHY-DESIGN.md) for the frame layout, limitations, 
 ## Roadmap
 
 1. **Baseband codec** — frame encoder, IQ generation, receiver, unit tests.
-2. **Receiver robustness** — timing recovery, carrier-frequency offset handling, better preamble detection, channel/noise tests.
-3. **SDR integration** — support a specific compatible SDR and validate with captured IQ and conducted/over-the-air tests in a legally permitted setup.
-4. **Measured comparison** — packet error rate, sensitivity, data rate, occupied bandwidth, and power/energy measurements against suitable baselines.
-5. **Prior-art review** — document related PHYs and patent claims before making novelty or patentability claims.
+2. **Repeatable channel experiments** — SNR/PER sweeps and impairment regression tests.
+3. **Receiver robustness** — timing recovery, carrier-frequency-offset estimation, preamble correlation, sample-clock mismatch and multipath tests.
+4. **SDR integration** — support a specific compatible SDR and validate with captured IQ and conducted/over-the-air tests in a legally permitted setup.
+5. **Measured comparison** — packet error rate, sensitivity, data rate, occupied bandwidth, and power/energy measurements against suitable baselines.
+6. **Prior-art review** — document related PHYs and patent claims before making novelty or patentability claims.
 
 ## Hardware reality
 
