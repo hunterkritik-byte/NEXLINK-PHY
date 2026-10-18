@@ -30,10 +30,10 @@ def test_receiver_handles_leading_sample_offset():
 
 def test_receiver_rejects_corrupted_frame():
     iq = encode_frame(b"integrity check")
-    # Flip a chunk of samples in a payload symbol; CRC should reject the frame.
-    symbol_index = (24 + 16 + 16 + 8)  # preamble + sync + length + first payload byte
+    # The first payload bit is 0; replace its symbol with a 1-tone.
+    symbol_index = 24 + 16 + 16  # preamble + sync + length
     start = symbol_index * SAMPLES_PER_SYMBOL
-    iq[start:start + SAMPLES_PER_SYMBOL] *= -1
+    iq[start:start + SAMPLES_PER_SYMBOL] = modulate([1])
     with pytest.raises(ValueError):
         decode_frame(iq)
 
