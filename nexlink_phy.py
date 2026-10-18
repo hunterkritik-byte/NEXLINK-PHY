@@ -122,12 +122,12 @@ def decode_frame(iq: np.ndarray) -> bytes:
             if end > len(bits):
                 continue
             encoded = bits_to_bytes(bits[length_start + 16:end])
-            body, crc_bytes = encoded[:-2], encoded[-2:]
-            if crc16_ccitt(body) != int.from_bytes(crc_bytes, "big"):
+            payload, crc_bytes = encoded[:-2], encoded[-2:]
+            # The transmitted CRC covers the 16-bit length field + payload.
+            crc_input = length.to_bytes(2, "big") + payload
+            if crc16_ccitt(crc_input) != int.from_bytes(crc_bytes, "big"):
                 continue
-            if int.from_bytes(body[:2], "big") != length:
-                continue
-            return body[2:]
+            return payload
     raise ValueError("no valid NEXLINK frame found (sync/length/CRC check failed)")
 
 
